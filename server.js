@@ -104,8 +104,7 @@ function crearPronosticos(eventos, limiteSolicitado) {
   return pronosticos
     .filter((item, index, all) => all.findIndex((other) =>
       other.deporte === item.deporte &&
-      other.evento === item.evento &&
-      other.mercado === item.mercado) === index)
+      other.evento === item.evento) === index)
     .sort((a, b) => b.indiceValor - a.indiceValor)
     .slice(0, limite);
 }
