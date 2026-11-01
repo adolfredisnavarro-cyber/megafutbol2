@@ -36,18 +36,36 @@ async function consultarDeporte(sport, apiKey) {
 
 function crearPronosticos(eventos, limiteSolicitado) {
   const ahora = Date.now();
+  const formatoFecha = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const hoy = formatoFecha.format(new Date());
   const unicos = new Map();
   for (const evento of eventos) {
     if (!evento.home_team || !evento.away_team) continue;
     if (evento.commence_time && Date.parse(evento.commence_time) < ahora) continue;
-    const key = evento.id || [
+    if (!evento.commence_time || formatoFecha.format(new Date(evento.commence_time)) !== hoy) continue;
+    const normalizarEquipo = (nombre) => nombre
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\b(fc|cf|sc|club|deportivo|basketball|bc)\b/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+    const key = [
       evento.sport,
-      evento.home_team.trim().toLowerCase(),
-      evento.away_team.trim().toLowerCase(),
-      evento.commence_time || 'sin-hora',
+      normalizarEquipo(evento.home_team),
+      normalizarEquipo(evento.away_team),
     ].join('|');
     const existente = unicos.get(key);
-    if (!existente || (evento.bookmakers || []).length > (existente.bookmakers || []).length) {
+    const horaEvento = Date.parse(evento.commence_time || '') || Number.MAX_SAFE_INTEGER;
+    const horaExistente = Date.parse(existente?.commence_time || '') || Number.MAX_SAFE_INTEGER;
+    if (!existente ||
+      (horaEvento < horaExistente && (evento.bookmakers || []).length >= (existente.bookmakers || []).length) ||
+      (horaEvento === horaExistente && (evento.bookmakers || []).length > (existente.bookmakers || []).length)) {
       unicos.set(key, evento);
     }
   }
@@ -148,4 +166,4 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor MegaFutbol escuchando en el puerto ${PORT}.`);
- }); 
+});
