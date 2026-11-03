@@ -174,4 +174,20 @@ const server = http.createServer(async (req, res) => {
     try {
       enviarJson(res, 200, await consultarPronosticos(limite));
     } catch (error) {
-      console.error('Error consultando The Odds API.', error)
+      console.error('Error consultando The Odds API.', error);
+      enviarJson(res, 502, {
+        ok: false,
+        configured: true,
+        events: 0,
+        message: error instanceof Error ? error.message : 'Error consultando The Odds API.',
+        pronosticos: [],
+      });
+    }
+    return;
+  }
+  enviarJson(res, 404, { ok: false, message: 'Ruta no encontrada.' });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor MegaFutbol escuchando en el puerto ${PORT}.`);
+});
