@@ -2,6 +2,16 @@ const http = require('http');
 
 const PORT = Number(process.env.PORT) || 3000;
 const API_BASE_URL = 'https://api.the-odds-api.com/v4/sports';
+const SPORTS = [
+  'soccer_epl',
+  'soccer_spain_la_liga',
+  'soccer_italy_serie_a',
+  'soccer_germany_bundesliga',
+  'soccer_uefa_champs_league',
+  'basketball_nba',
+];
+const MARKETS = 'h2h,totals,spreads';
+const MIN_ODDS = 1.01;
 
 function enviarJson(res, status, data) {
   res.writeHead(status, {
@@ -16,7 +26,7 @@ async function consultarDeporte(sport, apiKey) {
   const url = new URL(`${API_BASE_URL}/${sport}/odds/`);
   url.searchParams.set('apiKey', apiKey);
   url.searchParams.set('regions', 'eu');
-  url.searchParams.set('markets', 'h2h,totals');
+  url.searchParams.set('markets', MARKETS);
   url.searchParams.set('oddsFormat', 'decimal');
 
   const controller = new AbortController();
@@ -36,18 +46,12 @@ async function consultarDeporte(sport, apiKey) {
 
 function crearPronosticos(eventos, limiteSolicitado) {
   const ahora = Date.now();
-  const formatoFecha = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Bogota',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const hoy = formatoFecha.format(new Date());
+  const limiteFuturo = ahora + 72 * 60 * 60 * 1000;
   const unicos = new Map();
   for (const evento of eventos) {
     if (!evento.home_team || !evento.away_team) continue;
     if (evento.commence_time && Date.parse(evento.commence_time) < ahora) continue;
-    if (!evento.commence_time || formatoFecha.format(new Date(evento.commence_time)) !== hoy) continue;
+    if (!evento.commence_time || Date.parse(evento.commence_time) > limiteFuturo) continue;
     const normalizarEquipo = (nombre) => nombre
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
@@ -76,21 +80,24 @@ function crearPronosticos(eventos, limiteSolicitado) {
     const mercados = new Map();
     for (const bookmaker of evento.bookmakers || []) {
       for (const market of bookmaker.markets || []) {
-        if (mercados.has(market.key)) continue;
-        const outcome = (market.outcomes || [])
-          .filter((item) => Number.isFinite(Number(item.price)))
-          .sort((a, b) => Number(a.price) - Number(b.price))[0];
-        if (outcome) mercados.set(market.key, { outcome, bookmaker });
+        for (const outcome of market.outcomes || []) {
+          const cuota = Number(outcome.price);
+          if (!Number.isFinite(cuota) || cuota < MIN_ODDS) continue;
+          const key = `${market.key}|${outcome.name}|${outcome.point ?? ''}`;
+          const actual = mercados.get(key);
+          if (!actual || cuota > actual.cuota) {
+            mercados.set(key, { market, outcome, bookmaker, cuota });
+          }
+        }
       }
     }
-    return [...mercados].map(([marketKey, { outcome, bookmaker }]) => {
-      const cuota = Number(outcome.price);
+    return [...mercados.values()].map(({ market, outcome, bookmaker, cuota }) => {
       return {
         deporte,
         evento: eventoNombre,
         horaInicio: evento.commence_time || null,
-        mercado: marketKey === 'h2h' ? 'Ganador' : 'Total',
-        seleccion: marketKey === 'totals'
+        mercado: market.key === 'h2h' ? 'Ganador' : market.key === 'spreads' ? 'Hándicap' : 'Total',
+        seleccion: market.key === 'totals'
           ? `${outcome.name} ${outcome.point ?? ''}`.trim()
           : outcome.name,
         cuota,
@@ -100,11 +107,13 @@ function crearPronosticos(eventos, limiteSolicitado) {
     });
   });
 
-  const limite = Math.min(10, Math.max(5, Number(limiteSolicitado) || 5));
+  const limite = Math.min(15, Math.max(5, Number(limiteSolicitado) || 5));
   return pronosticos
     .filter((item, index, all) => all.findIndex((other) =>
       other.deporte === item.deporte &&
-      other.evento === item.evento) === index)
+      other.evento === item.evento &&
+      other.mercado === item.mercado &&
+      other.seleccion === item.seleccion) === index)
     .sort((a, b) => b.indiceValor - a.indiceValor)
     .slice(0, limite);
 }
@@ -121,16 +130,23 @@ async function consultarPronosticos(limite) {
     };
   }
 
-  const eventos = (await Promise.all([
-    consultarDeporte('soccer_spain_la_liga', apiKey),
-    consultarDeporte('basketball_nba', apiKey),
-  ])).flat();
+  const respuestas = await Promise.all(SPORTS.map(async (sport) => {
+    try {
+      return await consultarDeporte(sport, apiKey);
+    } catch (error) {
+      console.error(`No se pudo consultar ${sport}.`, error);
+      return [];
+    }
+  }));
+  const eventos = respuestas.flat();
   const pronosticos = crearPronosticos(eventos, limite);
   return {
     ok: true,
     configured: true,
     events: eventos.length,
-    message: `Se encontraron ${eventos.length} eventos y ${pronosticos.length} pronósticos para mostrar.`,
+    message: pronosticos.length > 0
+      ? `Se encontraron ${eventos.length} eventos y ${pronosticos.length} pronósticos para mostrar.`
+      : `Se encontraron ${eventos.length} eventos, pero no hay cuotas decimales válidas en las próximas 72 horas.`,
     pronosticos,
   };
 }
