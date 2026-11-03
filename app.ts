@@ -5,6 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { FootballSheetService } from './services/football-sheet.service';
 import { OddsApiService, OnlinePronostico } from './services/odds-api.service';
+import { GlobalInvestmentComponent } from './components/global-investment/global-investment.component';
 interface LicenciasResponse {
   claveMaestra: string;
   dispositivos: { id: string; expiracion: string }[];
@@ -75,10 +76,16 @@ interface RetoMillonarioApuesta {
   resultado: 'pendiente' | 'ganada' | 'perdida';
 }
 
+interface X3dApuesta extends OnlinePronostico {
+  paso: number;
+  horaReto: string;
+  categoria: string;
+}
+
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, GlobalInvestmentComponent],
   template: `
     <!-- SI LA APP NO ESTÁ AUTORIZADA (PANTALLA DE BLOQUEO / ACTIVACIÓN) -->
     <div
@@ -153,11 +160,14 @@ font-family: system-ui, sans-serif;"
 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; 
 gap: 1rem;"
       >
-        <div>
+        <div class="app-brand">
+          <div class="app-logo" aria-hidden="true">⚽</div>
+          <div>
           <h1 style="margin: 0; font-size: 1.8rem; color: #38bdf8;">MEGAFUTBOL</h1>
           <p style="color: #94a3b8; margin-top: 0.4rem; font-size: 0.95rem;">
             Sistema integral automatizado de analítica y predicción deportiva
           </p>
+          </div>
         </div>
         <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
           <div
@@ -228,7 +238,22 @@ gap: 1.5rem;"
       </section>
 
       <!-- 2. PESTAÑAS DE NAVEGACIÓN -->
-      <nav class="app-tabs" aria-label="Módulos de análisis">
+      <button
+        type="button"
+        class="tabs-drawer-toggle"
+        (click)="menuAbierto = !menuAbierto"
+        [attr.aria-expanded]="menuAbierto"
+        aria-controls="app-navigation"
+      >
+        <span aria-hidden="true">{{ menuAbierto ? '›' : '‹' }}</span>
+        <span>{{ menuAbierto ? 'Ocultar menú' : 'Menú' }}</span>
+      </button>
+      <nav
+        id="app-navigation"
+        class="app-tabs"
+        [class.menu-open]="menuAbierto"
+        aria-label="Módulos de análisis"
+      >
         <button
           (click)="pestanaActiva = 'partido'"
           [class.active]="pestanaActiva === 'partido'"
@@ -402,6 +427,15 @@ cursor: pointer; transition: 0.2s;"
           Reto
         </button>
         <button
+          (click)="pestanaActiva = 'x3D'"
+          [class.active]="pestanaActiva === 'x3D'"
+          [style.background-color]="pestanaActiva === 'x3D' ? '#38bdf8' : '#1e293b'"
+          [style.color]="pestanaActiva === 'x3D' ? '#0f172a' : 'white'"
+          style="padding: 10px 14px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s;"
+        >
+          x3D
+        </button>
+        <button
           (click)="pestanaActiva = 'retoMillonario'"
           [class.active]="pestanaActiva === 'retoMillonario'"
           [style.background-color]="pestanaActiva === 'retoMillonario' ? '#38bdf8' : '#1e293b'"
@@ -410,7 +444,17 @@ cursor: pointer; transition: 0.2s;"
         >
           Reto millonario
         </button>
+        <button
+          (click)="pestanaActiva = 'inversionGlobal'"
+          [class.active]="pestanaActiva === 'inversionGlobal'"
+          [style.background-color]="pestanaActiva === 'inversionGlobal' ? '#38bdf8' : '#1e293b'"
+          [style.color]="pestanaActiva === 'inversionGlobal' ? '#0f172a' : 'white'"
+          style="padding: 10px 14px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer;"
+        >
+          Inversión global
+        </button>
       </nav>
+      <app-global-investment *ngIf="pestanaActiva === 'inversionGlobal'"></app-global-investment>
       <!-- 3. PESTAÑA NUEVA: AUTO (EXCLUSIVAMENTE EL CUADRO DE PEGADO) -->
       <section
         *ngIf="pestanaActiva === 'auto'"
@@ -562,6 +606,73 @@ weight: bold; cursor: pointer; font-size: 0.9rem;"
         </div>
       </section>
 
+      <section *ngIf="pestanaActiva === 'x3D'" class="x3d-panel">
+        <div class="x3d-heading">
+          <div>
+            <span class="module-kicker">Módulo de estrategia</span>
+            <h2>x3D · Reto de 4 apuestas</h2>
+          </div>
+          <span class="x3d-badge">Cuota {{ x3dCuota | number: '1.2-2' }}</span>
+        </div>
+        <p class="reto-help">
+          Configura tu capital y pulsa iniciar para extraer automáticamente cuotas válidas de The Odds API.
+        </p>
+        <div class="x3d-online-actions">
+          <button type="button" class="search-data-button x3d-start-button" [disabled]="buscandoX3D" (click)="comenzarReto()">
+            {{ buscandoX3D ? 'Extrayendo cuotas...' : 'Empezar extracción x3D' }}
+          </button>
+          <span class="import-status" aria-live="polite">{{ estadoX3D }}</span>
+        </div>
+        <div class="reto-controls x3d-controls">
+          <label>
+            Capital inicial
+            <input type="number" min="1" step="100" [(ngModel)]="x3dCapital" (input)="calcularX3D()" />
+          </label>
+          <label>
+            Cuota fija del reto
+            <input type="number" min="1.5" max="1.5" step="0.01" [(ngModel)]="x3dCuota" readonly />
+          </label>
+        </div>
+        <div class="x3d-step-grid">
+          <article class="x3d-step-card" *ngFor="let paso of x3dTabla">
+            <span>Apuesta {{ paso.paso }}</span>
+            <strong>{{ x3dPorcentajes[paso.paso - 1] }}%</strong>
+            <small>Capital: {{ paso.capitalInicial | number: '1.0-0' }}</small>
+            <small>Apostado: {{ paso.apuesta | number: '1.0-0' }}</small>
+            <small>Retorno: {{ paso.retorno | number: '1.0-0' }}</small>
+            <b>Saldo: {{ paso.capitalFinal | number: '1.0-0' }}</b>
+          </article>
+        </div>
+        <div class="x3d-picks-grid" *ngIf="x3dApuestas.length > 0">
+          <article class="x3d-pick x3d-static-card" *ngFor="let apuesta of x3dApuestas">
+            <span>{{ apuesta.categoria }} · {{ apuesta.deporte }}</span>
+            <strong>{{ apuesta.evento }}</strong>
+            <small>{{ apuesta.mercado }}: {{ apuesta.seleccion }}</small>
+            <b>Cuota {{ apuesta.cuota | number: '1.2-2' }} · {{ apuesta.fuente }}</b>
+          </article>
+        </div>
+        <div class="x3d-source-links">
+          <span>Fuentes web:</span>
+          <a
+            *ngFor="let fuente of fuentesX3D"
+            [href]="fuente.url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {{ fuente.nombre }}
+          </a>
+        </div>
+        <div class="x3d-result">
+          <span>Saldo final estimado</span>
+          <strong>{{ x3dCapitalFinal | number: '1.0-0' }}</strong>
+          <small>Ganancia proyectada: {{ x3dCapitalFinal - x3dCapital | number: '1.0-0' }}</small>
+        </div>
+        <p class="x3d-note">
+          Herramienta de apoyo para análisis predictivo. No garantiza resultados ni recomienda
+          arriesgar dinero que no puedas perder.
+        </p>
+      </section>
+
       <section *ngIf="pestanaActiva === 'retoMillonario'" class="reto-millonario-panel">
         <h2>Reto millonario</h2>
         <p class="reto-help">
@@ -569,6 +680,20 @@ weight: bold; cursor: pointer; font-size: 0.9rem;"
               {{ retoMillonarioMeta | number: '1.0-0' }} al cierre de cada mes. El capital final de
               un mes pasa automáticamente como capital inicial del siguiente.
         </p>
+        <div class="x3d-online-actions">
+          <button type="button" class="search-data-button x3d-start-button" [disabled]="buscandoMillonario" (click)="comenzarRetoMillonario()">
+            {{ buscandoMillonario ? 'Extrayendo cuotas...' : 'Empezar extracción millonaria' }}
+          </button>
+          <span class="import-status" aria-live="polite">{{ estadoMillonario }}</span>
+        </div>
+        <div class="x3d-picks-grid" *ngIf="millonarioApuestas.length > 0">
+          <article class="x3d-pick x3d-static-card" *ngFor="let apuesta of millonarioApuestas">
+            <span>{{ apuesta.deporte }} · {{ apuesta.mercado }}</span>
+            <strong>{{ apuesta.evento }}</strong>
+            <small>{{ apuesta.seleccion }}</small>
+            <b>Cuota {{ apuesta.cuota | number: '1.2-2' }} · {{ apuesta.fuente }}</b>
+          </article>
+        </div>
         <div class="reto-controls reto-millonario-controls">
           <label>
             Capital inicial
@@ -1587,46 +1712,25 @@ weight: bold;"
       <section *ngIf="pestanaActiva === 'pronosticos'" class="nba-panel pronosticos-panel">
         <div class="nba-panel-header">
           <div>
-            <span class="nba-kicker">ANÁLISIS INTERNO</span>
+            <span class="nba-kicker">PRONÓSTICOS ONLINE</span>
             <h2>Pronósticos diarios</h2>
-            <p>Genera hasta {{ limitePronosticos }} opciones usando los datos introducidos. Funciona sin internet.</p>
+            <p>Hasta {{ limitePronosticos }} selecciones online de fútbol, NBA, tenis y otras ligas.</p>
           </div>
           <button type="button" class="search-data-button" [disabled]="buscandoPronosticosOnline" (click)="buscarPronosticosOnline()">
-            {{ buscandoPronosticosOnline ? 'Buscando pronósticos...' : 'Buscar pronósticos online' }}
+            {{ buscandoPronosticosOnline ? 'Extrayendo cuotas...' : 'Empezar extracción diaria' }}
           </button>
         </div>
         <div class="pronosticos-toolbar">
-          <label>Máximo de opciones
-            <input type="number" min="5" max="10" [(ngModel)]="limitePronosticos" (input)="generarPronosticosInternos()" />
-          </label>
-          <label>Índice mínimo
-            <input type="number" min="50" max="95" [(ngModel)]="umbralValorPronosticos" (input)="generarPronosticosInternos()" />
-          </label>
+          <span class="import-status">Cualquier cuota decimal válida · Próximas 72 horas · Datos online</span>
           <span class="import-status" aria-live="polite">{{ estadoPronosticos }}</span>
-          <small class="api-build-version">Buscador online v2 · tarjetas independientes</small>
+          <small class="api-build-version">Buscador online v4 · cuotas reales de The Odds API</small>
         </div>
-        <p class="api-config-help" *ngIf="!apiConfigurada">
-          Para conectar la API, copia <code>.env.example</code> como <code>.env</code> en la carpeta principal y pega tu clave en <code>ODDS_API_KEY=...</code>.
-        </p>
-        <p class="api-config-success" *ngIf="apiConfigurada">
-          API conectada correctamente. Los resultados online se muestran solo en estas tarjetas.
-        </p>
         <div class="online-warning" role="note">
-          <strong>Advertencia:</strong> estos eventos, mercados y cuotas se reciben en tiempo real desde The Odds API.
-          El índice estimado lo calcula esta aplicación; no garantiza aciertos, resultados ni ganancias.
-          Verifica siempre el partido y la cuota actual directamente antes de realizar cualquier apuesta.
+          <strong>Fuente:</strong> los datos se consultan mediante la API configurada para la
+          aplicación y la fuente devuelta se muestra en cada tarjeta.
         </div>
         <div class="pronosticos-notice">
           El índice de valor es una estimación del modelo basada en tus datos; no garantiza aciertos ni sustituye una fuente de información actualizada.
-        </div>
-        <div class="pronosticos-grid" *ngIf="pronosticosDiarios.length > 0">
-          <article class="pronostico-card" *ngFor="let pronostico of pronosticosDiarios">
-            <span class="nba-kicker">{{ pronostico.deporte }}</span>
-            <h3>{{ pronostico.evento }}</h3>
-            <strong>{{ pronostico.mercado }}: {{ pronostico.seleccion }}</strong>
-            <span class="pronostico-value">Índice de valor: {{ pronostico.indiceValor }}%</span>
-            <small>{{ pronostico.razon }}</small>
-          </article>
         </div>
         <div class="online-results-panel" *ngIf="pronosticosOnline.length > 0">
           <h3>Pronósticos encontrados online ({{ pronosticosOnline.length }})</h3>
@@ -1641,12 +1745,12 @@ weight: bold;"
             </article>
           </div>
         </div>
-        <p *ngIf="pronosticosDiarios.length === 0" class="pronosticos-empty">
-          Introduce datos en fútbol, NBA o tenis de mesa y pulsa “Calcular ahora” para generar opciones.
+        <p *ngIf="pronosticosOnline.length === 0" class="pronosticos-empty">
+          {{ consultaOnlineIntentada ? estadoPronosticos : 'Pulsa “Empezar extracción diaria” para consultar cuotas reales.' }}
         </p>
         <div class="nba-prompt-box">
-          <strong>Fuentes gratuitas abiertas para consultar</strong>
-          <small>El navegador no puede leer automáticamente estas páginas por restricciones de seguridad; el botón las abre para que puedas consultar y pegar sus datos en los módulos.</small>
+          <strong>Fuentes de referencia</strong>
+          <small>Las fuentes de referencia se muestran para contrastar la información.</small>
           <div class="source-links">
             <a *ngFor="let fuente of fuentesPronosticos" [href]="fuente.url" target="_blank" rel="noopener noreferrer">{{ fuente.nombre }}</a>
           </div>
@@ -1672,6 +1776,11 @@ bottom: 2rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);"
           <p>
             <strong>3. Cálculos Automáticos:</strong> Modifica cualquier valor y los resultados se
             actualizan al instante.
+          </p>
+          <p class="legal-disclaimer">
+            MEGAFUTBOL es únicamente una herramienta de ayuda para el análisis predictivo deportivo.
+            No se hace responsable del uso, interpretación o destino del dinero. Todas las decisiones
+            y sus consecuencias quedan bajo la autonomía y responsabilidad del cliente.
           </p>
         </div>
       </section>
@@ -2115,12 +2224,17 @@ pre-wrap; line-height: 1.5;"
           [textContent]="promptWeb"
         ></div>
       </section>
+      <footer class="app-footer">
+        <span>MEGAFUTBOL · Sistema integral de analítica deportiva</span>
+        <strong>Versión 2 · 2026</strong>
+      </footer>
     
   `,
   schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class AppComponent implements OnInit {
   pestanaActiva: string = 'partido';
+  menuAbierto = false;
   nba = {
     localNombre: 'Equipo NBA Local',
     visitaNombre: 'Equipo NBA Visitante',
@@ -2188,12 +2302,13 @@ export class AppComponent implements OnInit {
   resultadoPromTenisMesa = '';
   estadoImportacionTenisMesa = '';
   datosNoColocadosTenisMesa: string[] = [];
-  limitePronosticos = 5;
+  limitePronosticos = 15;
   umbralValorPronosticos = 65;
   pronosticosDiarios: PronosticoDiario[] = [];
   pronosticosOnline: OnlinePronostico[] = [];
+  estadoPronosticos = 'Pulsa “Buscar pronósticos online” para consultar la API.';
   buscandoPronosticosOnline = false;
-  estadoPronosticos = 'Análisis interno listo.';
+  consultaOnlineIntentada = false;
   apiConfigurada = false;
   fuentesPronosticos = [
     { nombre: 'BetMines', url: 'https://www.betmines.com/' },
@@ -2314,6 +2429,33 @@ export class AppComponent implements OnInit {
   retoPasos = 10;
   retoCapitalFinal = 0;
   retoTabla: RetoPaso[] = [];
+  x3dCapital = 100000;
+  x3dCuota = 1.5;
+  x3dPorcentajes = [60, 60, 50, 50];
+  x3dCapitalFinal = 0;
+  x3dTabla: RetoPaso[] = [];
+  x3dPronosticoWebInput = '';
+  x3dPronosticoWebCard = '';
+  x3dApuestas: X3dApuesta[] = [];
+  millonarioApuestas: X3dApuesta[] = [];
+  readonly fuentesX3D = [
+    {
+      nombre: 'Forebet',
+      url: 'https://www.forebet.com/en/football-predictions/predictions-1x2',
+    },
+    {
+      nombre: 'BetMines',
+      url: 'https://betmines.com/es',
+    },
+    {
+      nombre: 'Vitisport',
+      url: 'https://www.vitisport.es/',
+    },
+  ];
+  estadoX3D = 'Pulsa “Empezar extracción x3D” para cargar cuotas.';
+  buscandoX3D = false;
+  estadoMillonario = 'Pulsa “Empezar extracción millonaria” para cargar cuotas.';
+  buscandoMillonario = false;
   retoMillonarioCapitalInicial = 100000;
   retoMillonarioMeta = 54000000;
   retoMillonarioCapitalFinal = 0;
@@ -2573,6 +2715,38 @@ ${this.surebetPromptAddon}`
     this.retoCapitalFinal = capital;
   }
 
+  calcularX3D(): void {
+    const capitalIngresado = Number(this.x3dCapital);
+    const cuotaIngresada = Number(this.x3dCuota);
+    const capitalInicial = Number.isFinite(capitalIngresado) && capitalIngresado > 0
+      ? capitalIngresado
+      : 0;
+    const cuota = Number.isFinite(cuotaIngresada) ? Math.max(1.01, cuotaIngresada) : 1.5;
+
+    this.x3dCapital = capitalInicial;
+    this.x3dCuota = cuota;
+    this.x3dTabla = [];
+    let capital = capitalInicial;
+
+    for (let indice = 0; indice < this.x3dPorcentajes.length; indice++) {
+      const apuesta = capital * (this.x3dPorcentajes[indice] / 100);
+      const retorno = apuesta * cuota;
+      const capitalFinal = capital - apuesta + retorno;
+      this.x3dTabla.push({
+        paso: indice + 1,
+        capitalInicial: capital,
+        apuesta,
+        retorno,
+        ganancia: retorno - apuesta,
+        capitalFinal,
+        cuota,
+      });
+      capital = capitalFinal;
+    }
+
+    this.x3dCapitalFinal = capital;
+  }
+
   calcularRetoMillonario(): void {
     const capitalIngresado = Number(this.retoMillonarioCapitalInicial);
     const metaIngresada = Number(this.retoMillonarioMeta);
@@ -2678,6 +2852,9 @@ ${this.surebetPromptAddon}`
       34508700, 36089100, 37746300, 39482100, 41297700, 43194900, 45169500,
       47225700, 49365300, 51590100, 52091700, 52383300, 52560900, 54000000,
     ];
+    const metasMensuales = [1 / 54, 6 / 54, 18 / 54, 1].map(
+      (proporcion) => this.retoMillonarioMeta * proporcion,
+    );
 
     this.retoMillonarioTabla = this.retoMillonarioTabla.map((mes, indiceMes) => {
       const capitalInicial = capital;
@@ -2732,28 +2909,8 @@ ${this.surebetPromptAddon}`
         const aumentoRecuperacion = hayPerdidaAnterior
           ? 1 + Math.min(0.5, perdidasAnteriores * 0.05)
           : 1;
-        const montoBase1 = guardado?.apuesta1?.monto ?? (
-          esMes1
-            ? mes1Montos[dia - 1]
-            : esMes2
-              ? mes2Montos[dia - 1]
-              : esMes3
-                ? mes3Montos[dia - 1]
-                : esMes4
-                  ? mes4Montos[dia - 1]
-                  : montoTotal / 2
-        );
-        const montoBase2 = guardado?.apuesta2?.monto ?? (
-          esMes1
-            ? mes1Montos[dia - 1]
-            : esMes2
-              ? mes2Montos[dia - 1]
-              : esMes3
-                ? mes3Montos[dia - 1]
-                : esMes4
-                  ? mes4Montos[dia - 1]
-                  : montoTotal / 2
-        );
+        const montoBase1 = guardado?.apuesta1?.monto ?? montoTotal / 2;
+        const montoBase2 = guardado?.apuesta2?.monto ?? montoTotal / 2;
         const monto1 = resultado1 === 'pendiente'
           ? Math.min(capitalDia * 0.4, montoBase1 * aumentoRecuperacion)
           : guardado?.apuesta1?.monto ?? montoTotal / 2;
@@ -2775,25 +2932,7 @@ ${this.surebetPromptAddon}`
           : cuota2Base;
         const retornoApuesta1 = resultado1 === 'perdida' ? 0 : monto1 * cuotaFinal1;
         const retornoApuesta2 = resultado2 === 'perdida' ? 0 : monto2 * cuotaFinal2;
-        const hayResultadoAnterior = mes.dias
-          .slice(0, dia - 1)
-          .some((diaAnterior) =>
-            diaAnterior.apuesta1.resultado !== 'pendiente' ||
-            diaAnterior.apuesta2.resultado !== 'pendiente',
-          );
-        const saldoBasePrecargado = esMes1
-          ? mes1Saldos[dia - 1]
-          : esMes2
-            ? mes2Saldos[dia - 1]
-            : esMes3
-              ? mes3Saldos[dia - 1]
-              : esMes4
-                ? mes4Saldos[dia - 1]
-                : null;
-        const saldoProyectado = saldoBasePrecargado !== null && !hayResultadoAnterior &&
-          resultado1 === 'pendiente' && resultado2 === 'pendiente'
-          ? saldoBasePrecargado
-          : capitalDia - monto1 - monto2 + retornoApuesta1 + retornoApuesta2;
+        const saldoProyectado = capitalDia - monto1 - monto2 + retornoApuesta1 + retornoApuesta2;
         const capitalConGanancia = Math.round(saldoProyectado);
         dias.push({
           dia,
@@ -2811,6 +2950,7 @@ ${this.surebetPromptAddon}`
       return {
         ...mes,
         capitalInicial,
+        meta: metasMensuales[indiceMes] ?? mes.meta,
         cuota: mes.dias[0]?.apuesta1?.cuota || 1.18,
         capitalFinal,
         dias,
@@ -2970,6 +3110,7 @@ ${this.surebetPromptAddon}`
     this.recalcular();
     this.cargarRetoMillonario();
     this.calcularRetoMillonario();
+    this.calcularX3D();
     this.calcularNba();
     this.calcularTenisMesa();
     this.generarPronosticosInternos();
@@ -3070,54 +3211,219 @@ ${this.surebetPromptAddon}`
   }
 
   async buscarPronosticosOnline(): Promise<void> {
-    if (this.buscandoPronosticosOnline) {
+    if (this.buscandoPronosticosOnline) return;
+    this.buscandoPronosticosOnline = true;
+    this.consultaOnlineIntentada = true;
+    this.pronosticosOnline = [];
+    this.estadoPronosticos = 'Consultando la API de pronósticos...';
+    try {
+      const respuesta = await this.oddsApiService.consultarPronosticos(40);
+      this.apiConfigurada = respuesta.configured;
+      this.pronosticosOnline = this.seleccionarPronosticosOnline(
+        this.filtrarPronosticosDeHoy(respuesta.pronosticos),
+      );
+      this.estadoPronosticos = respuesta.ok && this.pronosticosOnline.length > 0
+        ? `API actualizada: ${this.pronosticosOnline.length} pronósticos disponibles.`
+        : respuesta.events > 0 && respuesta.pronosticos.length === 0
+          ? 'El backend online devolvió eventos sin cuotas. Publica la versión actualizada o inicia "node server.js" localmente.'
+          : respuesta.message || 'La API no devolvió cuotas válidas para las próximas 72 horas.';
+    } catch (error) {
+      console.error('Error consultando la API de pronósticos.', error);
+      this.estadoPronosticos = error instanceof Error
+        ? `No se pudo consultar la API: ${error.message}`
+        : 'No se pudo consultar la API de pronósticos.';
+    } finally {
+      this.buscandoPronosticosOnline = false;
+      this.changeDetectorRef.detectChanges();
+    }
+  }
+
+  guardarPronosticoWeb(): void {
+    const pronostico = this.x3dPronosticoWebInput.trim();
+    if (!pronostico) {
+      this.estadoX3D = 'Pega un pronóstico antes de guardarlo.';
       return;
     }
-    this.ngZone.run(() => {
-      this.buscandoPronosticosOnline = true;
-      this.pronosticosOnline = [];
-      this.estadoPronosticos = 'Verificando conexión online...';
-      this.changeDetectorRef.detectChanges();
-    });
-    try {
-      const puente = await this.oddsApiService.verificarElectron();
-      if (!puente.ok) {
-        this.ngZone.run(() => {
-          this.estadoPronosticos = puente.message;
-          this.changeDetectorRef.detectChanges();
-        });
-        return;
-      }
-      this.ngZone.run(() => {
-        this.estadoPronosticos = 'Conexión online correcta. Consultando The Odds API...';
-        this.changeDetectorRef.detectChanges();
-      });
-      const respuesta = await this.oddsApiService.consultarPronosticos(this.limitePronosticos);
-      this.ngZone.run(() => {
-        this.apiConfigurada = respuesta.configured;
-        this.pronosticosOnline = this.eliminarPronosticosDuplicados(
-          this.filtrarPronosticosDeHoy(respuesta.pronosticos),
-        );
-        this.estadoPronosticos = respuesta.ok
-          ? `${respuesta.message} Los campos de los otros módulos no se modificaron. Tarjetas recibidas: ${this.pronosticosOnline.length}.`
-          : respuesta.message;
-        this.guardarEstadoPartido();
-        this.changeDetectorRef.detectChanges();
-      });
-    } catch (error) {
-      console.error('Error en la búsqueda de pronósticos online.', error);
-      this.ngZone.run(() => {
-        this.estadoPronosticos = error instanceof Error
-          ? `No se pudieron consultar los pronósticos: ${error.message}`
-          : 'No se pudieron consultar los pronósticos online.';
-        this.changeDetectorRef.detectChanges();
-      });
-    } finally {
-      this.ngZone.run(() => {
-        this.buscandoPronosticosOnline = false;
-        this.changeDetectorRef.detectChanges();
-      });
+
+    this.x3dPronosticoWebCard = pronostico;
+    this.estadoX3D = 'Pronóstico web guardado en una tarjeta estática.';
+    this.guardarEstadoPartido();
+  }
+
+  copiarPronosticoWeb(): void {
+    if (!this.x3dPronosticoWebCard || typeof navigator === 'undefined' || !navigator.clipboard) {
+      this.estadoX3D = 'No hay una tarjeta guardada para copiar.';
+      return;
     }
+
+    void navigator.clipboard.writeText(this.x3dPronosticoWebCard)
+      .then(() => {
+        this.estadoX3D = 'Pronóstico copiado al portapapeles.';
+      })
+      .catch(() => {
+        this.estadoX3D = 'No se pudo copiar. Selecciona el texto de la tarjeta manualmente.';
+      });
+  }
+
+  async comenzarReto(): Promise<void> {
+    if (this.buscandoX3D) return;
+    this.buscandoX3D = true;
+    this.x3dApuestas = [];
+    this.estadoX3D = 'Consultando API para buscar eventos de hoy...';
+    try {
+      const respuesta = await this.oddsApiService.consultarPronosticos(40);
+      this.apiConfigurada = respuesta.configured;
+      this.x3dApuestas = this.crearSecuenciaX3D(this.filtrarPronosticosDeHoy(respuesta.pronosticos));
+      this.estadoX3D = respuesta.ok && this.x3dApuestas.length > 0
+        ? `${this.x3dApuestas.length} apuestas cargadas desde la API para el reto x3D.`
+        : respuesta.message || 'La API no devolvió cuotas válidas para x3D.';
+    } catch (error) {
+      console.error('Error consultando la API para x3D.', error);
+      this.estadoX3D = error instanceof Error
+        ? `No se pudo consultar la API: ${error.message}`
+        : 'No se pudo consultar la API para x3D.';
+    } finally {
+      this.buscandoX3D = false;
+      this.changeDetectorRef.detectChanges();
+    }
+  }
+
+  async comenzarRetoMillonario(): Promise<void> {
+    if (this.buscandoMillonario) return;
+    this.buscandoMillonario = true;
+    this.millonarioApuestas = [];
+    this.estadoMillonario = 'Consultando cuotas válidas para la fase activa...';
+    try {
+      const respuesta = await this.oddsApiService.consultarPronosticos(40);
+      this.apiConfigurada = respuesta.configured;
+      const disponibles = this.filtrarPronosticosDeHoy(respuesta.pronosticos)
+        .filter((pronostico) => pronostico.cuota !== null && pronostico.cuota > 1);
+      const seleccionados = this.eliminarPronosticosDuplicados(disponibles).slice(0, 2);
+      this.millonarioApuestas = seleccionados.map((pronostico, indice) => ({
+        ...pronostico,
+        paso: indice + 1,
+        categoria: 'Fase activa',
+        horaReto: pronostico.horaInicio ?? '',
+      }));
+      this.estadoMillonario = respuesta.ok && this.millonarioApuestas.length > 0
+        ? `${this.millonarioApuestas.length} cuotas cargadas para el Reto Millonario.`
+        : respuesta.message || 'La API no devolvió dos cuotas válidas para el Reto Millonario.';
+    } catch (error) {
+      console.error('Error consultando la API para el Reto Millonario.', error);
+      this.estadoMillonario = error instanceof Error
+        ? `No se pudo consultar la API: ${error.message}`
+        : 'No se pudo consultar la API para el Reto Millonario.';
+    } finally {
+      this.buscandoMillonario = false;
+      this.changeDetectorRef.detectChanges();
+    }
+  }
+
+  private crearSecuenciaX3D(pronosticos: OnlinePronostico[]): X3dApuesta[] {
+    const cuotasDeReto = pronosticos.filter((pronostico) =>
+      pronostico.cuota !== null && pronostico.cuota > 1,
+    );
+    const normalizar = (valor: string): string => this.normalizarEtiqueta(valor);
+    const grupos: Array<{ categoria: string; coincide: (texto: string) => boolean }> = [
+      {
+        categoria: 'Goles y ambos marcan',
+        coincide: (texto) => /gol|over|under|btts|ambos marcan|1[,.]5|2[,.]5/.test(texto),
+      },
+      {
+        categoria: 'Ganador',
+        coincide: (texto) => /ganador|winner|1x2|moneyline|match winner/.test(texto),
+      },
+      {
+        categoria: 'Córners',
+        coincide: (texto) => /corner|córner|esquina/.test(texto),
+      },
+      {
+        categoria: 'Faltas',
+        coincide: (texto) => /falta|foul/.test(texto),
+      },
+      {
+        categoria: 'NBA, tenis y otras ligas',
+        coincide: (texto) => /nba|basket|baloncesto|tenis|table tennis|ping pong|hockey|baseball/.test(texto),
+      },
+    ];
+    const usados = new Set<OnlinePronostico>();
+    const seleccionados: Array<{ pronostico: OnlinePronostico; categoria: string }> = [];
+
+    for (const grupo of grupos) {
+      const candidato = cuotasDeReto.find((pronostico) => {
+        if (usados.has(pronostico)) return false;
+        const texto = normalizar(`${pronostico.deporte} ${pronostico.mercado} ${pronostico.seleccion}`);
+        return grupo.coincide(texto);
+      });
+      if (candidato) {
+        usados.add(candidato);
+        seleccionados.push({ pronostico: candidato, categoria: grupo.categoria });
+      }
+      if (seleccionados.length === 4) break;
+    }
+
+    if (seleccionados.length < 4) {
+      for (const pronostico of cuotasDeReto) {
+        if (usados.has(pronostico)) continue;
+        usados.add(pronostico);
+        seleccionados.push({ pronostico, categoria: 'Mercado disponible' });
+        if (seleccionados.length === 4) break;
+      }
+    }
+
+    const ahora = new Date();
+    ahora.setMinutes(0, 0, 0);
+    if (ahora.getTime() <= Date.now()) ahora.setHours(ahora.getHours() + 1);
+
+    return seleccionados.map(({ pronostico, categoria }, indice) => {
+      const hora = new Date(ahora);
+      hora.setHours(ahora.getHours() + indice);
+      return {
+        ...pronostico,
+        paso: indice + 1,
+        categoria,
+        horaReto: hora.toLocaleTimeString('es-CO', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }),
+      };
+    });
+  }
+
+  private seleccionarPronosticosOnline(pronosticos: OnlinePronostico[]): OnlinePronostico[] {
+    const candidatos = this.eliminarPronosticosDuplicados(pronosticos)
+      .filter((pronostico) => pronostico.cuota !== null && pronostico.cuota > 1)
+      .filter((pronostico) => /f[uú]tbol|soccer|nba|basket|baloncesto|tenis|tennis|table tennis/i
+        .test(`${pronostico.deporte} ${pronostico.evento}`));
+    const grupos: Array<(pronostico: OnlinePronostico) => boolean> = [
+      (pronostico) => /gol|over|under|btts|ambos marcan|1[,.]5|2[,.]5/i.test(`${pronostico.mercado} ${pronostico.seleccion}`),
+      (pronostico) => /corner|córner|esquina|tiro de esquina/i.test(`${pronostico.mercado} ${pronostico.seleccion}`),
+      (pronostico) => /ganador|winner|1x2|moneyline/i.test(`${pronostico.mercado} ${pronostico.seleccion}`),
+      (pronostico) => /falta|foul|tiro|shot|punto|set|h[aá]ndicap/i.test(`${pronostico.mercado} ${pronostico.seleccion}`),
+      (pronostico) => /nba|basket|baloncesto|tenis|tennis|table tennis/i.test(pronostico.deporte),
+    ];
+    const seleccionados: OnlinePronostico[] = [];
+    const usados = new Set<OnlinePronostico>();
+
+    for (const grupo of grupos) {
+      const candidato = candidatos.find((pronostico) => !usados.has(pronostico) && grupo(pronostico));
+      if (candidato) {
+        usados.add(candidato);
+        seleccionados.push(candidato);
+      }
+
+    }
+
+    for (const candidato of candidatos) {
+      if (seleccionados.length >= 15) break;
+      if (!usados.has(candidato)) {
+        usados.add(candidato);
+        seleccionados.push(candidato);
+      }
+    }
+
+    return seleccionados.slice(0, 15);
   }
 
   private eliminarPronosticosDuplicados(pronosticos: OnlinePronostico[]): OnlinePronostico[] {
@@ -3142,22 +3448,14 @@ ${this.surebetPromptAddon}`
   }
 
   private filtrarPronosticosDeHoy(pronosticos: OnlinePronostico[]): OnlinePronostico[] {
-    const hoy = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Bogota',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
+    const ahora = Date.now();
+    const limiteFuturo = ahora + 72 * 60 * 60 * 1000;
     return pronosticos.filter((pronostico) => {
       if (!pronostico.horaInicio) {
         return false;
       }
-      return new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/Bogota',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(new Date(pronostico.horaInicio)) === hoy;
+      const inicio = Date.parse(pronostico.horaInicio);
+      return Number.isFinite(inicio) && inicio >= ahora && inicio <= limiteFuturo;
     });
   }
 
@@ -3192,6 +3490,9 @@ ${this.surebetPromptAddon}`
         pronosticosDiarios: this.pronosticosDiarios,
         pronosticosOnline: this.pronosticosOnline,
         estadoPronosticos: this.estadoPronosticos,
+        x3dPronosticoWebInput: this.x3dPronosticoWebInput,
+        x3dPronosticoWebCard: this.x3dPronosticoWebCard,
+        estadoX3D: this.estadoX3D,
       }));
     } catch (error) {
       console.warn('No se pudo guardar el estado del último partido.', error);
@@ -3227,6 +3528,9 @@ ${this.surebetPromptAddon}`
       this.pronosticosDiarios = estado.pronosticosDiarios ?? this.pronosticosDiarios;
       this.pronosticosOnline = this.filtrarPronosticosDeHoy(estado.pronosticosOnline ?? []);
       this.estadoPronosticos = estado.estadoPronosticos ?? this.estadoPronosticos;
+      this.x3dPronosticoWebInput = estado.x3dPronosticoWebInput ?? this.x3dPronosticoWebInput;
+      this.x3dPronosticoWebCard = estado.x3dPronosticoWebCard ?? this.x3dPronosticoWebCard;
+      this.estadoX3D = estado.estadoX3D ?? this.estadoX3D;
     } catch (error) {
       console.warn('No se pudo cargar el estado del último partido.', error);
     }
