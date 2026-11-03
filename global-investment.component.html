@@ -1,0 +1,88 @@
+<section class="investment-shell">
+  <header class="investment-header">
+    <div>
+      <span class="eyebrow">OPCIÓN A · THE ODDS API</span>
+      <h2>Inversión deportiva global</h2>
+      <p>Mercados filtrados por liquidez, cuota segura y separación de eventos.</p>
+    </div>
+    <button type="button" class="primary-button" [disabled]="loading" (click)="refresh()">
+      {{ loading ? 'Procesando...' : 'Actualizar cuotas' }}
+    </button>
+  </header>
+
+  <div class="investment-alert error" *ngIf="error" role="alert">{{ error }}</div>
+  <div class="investment-alert" *ngIf="board as current">
+    {{ current.message }} · {{ current.events }} eventos · Se muestran cuotas decimales válidas
+  </div>
+
+  <div class="balance-strip" *ngIf="board as current">
+    <div><span>Caja actual</span><strong>{{ formatMoney(current.balance) }}</strong></div>
+    <div><span>Fase activa</span><strong>{{ current.phases[current.active_phase].name }}</strong></div>
+    <div><span>Selecciones válidas</span><strong>{{ current.bets.length }}/11</strong></div>
+  </div>
+
+  <div class="investment-grid">
+    <article class="module-card module-x3d">
+      <div class="module-title">
+        <div><span class="eyebrow">4 SELECCIONES</span><h3>Reto X3D</h3></div>
+        <span class="module-count">{{ x3dBets.length }}/4</span>
+      </div>
+      <p class="module-help">La inversión se calcula para alcanzar una parte equitativa de la meta neta.</p>
+      <ng-container *ngFor="let bet of x3dBets; trackBy: trackByBet">
+        <div class="bet-card">
+          <div class="bet-topline"><span>{{ bet.sport }} · {{ bet.league }}</span><span class="odds">{{ bet.odds | number:'1.2-2' }}</span></div>
+          <strong>{{ bet.event }}</strong>
+          <span>{{ bet.market }}: {{ bet.selection }}</span>
+          <small>{{ bet.start_time | date:'dd/MM HH:mm' }} · {{ bet.bookmaker }}</small>
+          <div class="bet-finance"><span>Invertir <b>{{ formatMoney(bet.investment) }}</b></span><span>Ganancia neta <b>{{ formatMoney(bet.net_profit) }}</b></span></div>
+          <div class="bet-actions" *ngIf="bet.status === 'pending'; else settledX3d">
+            <button type="button" class="win" [disabled]="loading" (click)="setResult(bet, 'won')">Ganada</button>
+            <button type="button" class="loss" [disabled]="loading" (click)="setResult(bet, 'lost')">Perdida</button>
+          </div>
+          <ng-template #settledX3d><span class="status" [class.status-loss]="bet.status === 'lost'">{{ bet.status === 'won' ? 'Ganada' : 'Perdida' }}</span></ng-template>
+        </div>
+      </ng-container>
+    </article>
+
+    <article class="module-card module-millionaire">
+      <div class="module-title">
+        <div><span class="eyebrow">FASE ACTIVA · 2 SELECCIONES</span><h3>Reto Millonario</h3></div>
+      </div>
+      <div class="phase-list" *ngIf="board as current">
+        <div class="phase-card" *ngFor="let phase of current.phases; let i = index; trackBy: trackByPhase">
+          <button type="button" class="phase-heading" (click)="toggleMonth(i)">
+            <span>{{ phase.name }} · {{ formatMoney(phase.initial_balance) }} → {{ formatMoney(phase.target_balance) }}</span>
+            <span>{{ isMonthClosed(i) ? 'Mostrar' : 'Ocultar' }}</span>
+          </button>
+          <div class="progress-track"><span [style.width.%]="phase.progress"></span></div>
+          <small>{{ phase.days }} días · {{ phase.progress | number:'1.0-0' }}% completado</small>
+          <div *ngIf="!isMonthClosed(i) && i === current.active_phase" class="active-phase-bets">
+            <ng-container *ngFor="let bet of millionaireBets; trackBy: trackByBet">
+              <div class="bet-card compact">
+                <div class="bet-topline"><span>{{ bet.sport }} · {{ bet.market }}</span><span class="odds">{{ bet.odds | number:'1.2-2' }}</span></div>
+                <strong>{{ bet.event }}</strong><span>{{ bet.selection }}</span>
+                <div class="bet-finance"><span>Invertir <b>{{ formatMoney(bet.investment) }}</b></span><span>Ganancia <b>{{ formatMoney(bet.net_profit) }}</b></span></div>
+                <div class="bet-actions" *ngIf="bet.status === 'pending'; else settledMillionaire">
+                  <button type="button" class="win" [disabled]="loading" (click)="setResult(bet, 'won')">Ganada</button>
+                  <button type="button" class="loss" [disabled]="loading" (click)="setResult(bet, 'lost')">Perdida</button>
+                </div>
+                <ng-template #settledMillionaire><span class="status" [class.status-loss]="bet.status === 'lost'">{{ bet.status === 'won' ? 'Ganada' : 'Perdida' }}</span></ng-template>
+              </div>
+            </ng-container>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="module-card module-daily">
+      <div class="module-title"><div><span class="eyebrow">5 SUGERENCIAS</span><h3>Pronósticos Diarios</h3></div><span class="module-count">{{ dailyBets.length }}/5</span></div>
+      <div class="daily-list">
+        <div class="daily-item" *ngFor="let bet of dailyBets; trackBy: trackByBet">
+          <div><span>{{ bet.sport }} · {{ bet.market }}</span><strong>{{ bet.event }}</strong><small>{{ bet.selection }} · cuota {{ bet.odds | number:'1.2-2' }}</small></div>
+          <span class="daily-source">{{ bet.bookmaker }}</span>
+        </div>
+      </div>
+    </article>
+  </div>
+  <p class="investment-disclaimer">Herramienta informativa. Las cuotas cambian y no garantizan resultados; verifica siempre las reglas de liquidación.</p>
+</section>

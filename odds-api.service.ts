@@ -17,6 +17,7 @@ export interface OnlinePronostico {
   cuota: number | null;
   indiceValor: number;
   fuente: string;
+  fuenteUrl?: string;
 }
 
 interface ElectronIpcRenderer {
@@ -38,6 +39,7 @@ declare global {
 })
 export class OddsApiService {
   private readonly backendUrl = 'https://megafutbol2-2.onrender.com';
+  private readonly localBackendUrl = 'http://localhost:3000';
 
   consultarPronosticos(limite: number): Promise<OddsApiResponse> {
     if (typeof window === 'undefined' || !window.require) {
@@ -66,6 +68,7 @@ export class OddsApiService {
         pronosticos: [],
       });
     }
+
   }
 
   verificarElectron(): Promise<{ ok: boolean; message: string }> {
@@ -95,30 +98,64 @@ export class OddsApiService {
   }
 
   private consultarDesdeBackend(limite: number): Promise<OddsApiResponse> {
-    const timeout = window.setTimeout;
-    const controlador = new AbortController();
-    const temporizador = timeout(() => controlador.abort(), 15000);
-    return fetch(`${this.backendUrl}/api/pronosticos?limite=${encodeURIComponent(limite)}`, {
-      signal: controlador.signal,
-    })
-      .then(async (response) => {
-        const respuesta = await response.json() as OddsApiResponse;
-        if (!response.ok) {
-          throw new Error(respuesta.message || `El servidor respondió ${response.status}.`);
+    const url = (base: string): string =>
+      `${base}/api/pronosticos?limite=${encodeURIComponent(limite)}`;
+    const remotoPrimero = typeof window === 'undefined' || !window.location.hostname.includes('localhost');
+    const primeraUrl = remotoPrimero ? url(this.backendUrl) : url(this.localBackendUrl);
+    const segundaUrl = remotoPrimero ? url(this.localBackendUrl) : url(this.backendUrl);
+    return this.fetchBackend(primeraUrl)
+      .then(async (respuesta) => this.usarRespuestaOAlternativa(respuesta, url))
+      .catch(async (error) => {
+        try {
+          const local = await this.fetchBackend(segundaUrl);
+          return {
+            ...local,
+            message: `${local.message} Fuente: servidor local.`,
+          };
+        } catch {
+          return {
+            ok: false,
+            configured: true,
+            events: 0,
+            message: error instanceof Error
+              ? `${error.message} Inicia el backend local con "node server.js" si estás trabajando en desarrollo.`
+              : 'No se pudo consultar el servidor online.',
+            pronosticos: [],
+          };
         }
-        return respuesta;
-      })
-      .catch((error) => ({
-        ok: false,
-        configured: true,
-        events: 0,
-        message: error?.name === 'AbortError'
-          ? 'La consulta online tardó demasiado. Inténtalo nuevamente.'
-          : error instanceof Error
-            ? error.message
-            : 'No se pudo consultar el servidor online.',
-        pronosticos: [],
-      }))
-      .finally(() => clearTimeout(temporizador));
+      });
+  }
+
+  private async usarRespuestaOAlternativa(
+    respuesta: OddsApiResponse,
+    construirUrl: (base: string) => string,
+  ): Promise<OddsApiResponse> {
+    if (respuesta.ok && respuesta.pronosticos.length > 0) {
+      return respuesta;
+    }
+    try {
+      const local = await this.fetchBackend(construirUrl(this.localBackendUrl));
+      if (local.ok && local.pronosticos.length > 0) {
+        return { ...local, message: `${local.message} Fuente: servidor local.` };
+      }
+    } catch {
+      return respuesta;
+    }
+    return respuesta;
+  }
+
+  private async fetchBackend(url: string): Promise<OddsApiResponse> {
+    const controlador = new AbortController();
+    const temporizador = window.setTimeout(() => controlador.abort(), 15000);
+    try {
+      const response = await fetch(url, { signal: controlador.signal });
+      const respuesta = await response.json() as OddsApiResponse;
+      if (!response.ok) {
+        throw new Error(respuesta.message || `El servidor respondió ${response.status}.`);
+      }
+      return respuesta;
+    } finally {
+      clearTimeout(temporizador);
+    }
   }
 }
