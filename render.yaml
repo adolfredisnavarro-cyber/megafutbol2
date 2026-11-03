@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: megafutbol-odds-api
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install --omit=dev
+    startCommand: node server.js
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+
+  - type: web
+    name: megafutbol-frontend
+    runtime: static
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist/miappgooglesheet/browser
