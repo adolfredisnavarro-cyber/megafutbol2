@@ -130,15 +130,22 @@ async function consultarPronosticos(limite) {
     };
   }
 
-  const respuestas = await Promise.all(SPORTS.map(async (sport) => {
+  const resultados = await Promise.all(SPORTS.map(async (sport) => {
     try {
-      return await consultarDeporte(sport, apiKey);
+      return { sport, eventos: await consultarDeporte(sport, apiKey) };
     } catch (error) {
       console.error(`No se pudo consultar ${sport}.`, error);
-      return [];
+      return {
+        sport,
+        eventos: [],
+        error: error instanceof Error ? error.message : 'Error desconocido consultando el deporte.',
+      };
     }
   }));
-  const eventos = respuestas.flat();
+  const eventos = resultados.flatMap((resultado) => resultado.eventos);
+  const errores = resultados
+    .filter((resultado) => resultado.error)
+    .map((resultado) => `${resultado.sport}: ${resultado.error}`);
   const pronosticos = crearPronosticos(eventos, limite);
   return {
     ok: true,
@@ -146,7 +153,9 @@ async function consultarPronosticos(limite) {
     events: eventos.length,
     message: pronosticos.length > 0
       ? `Se encontraron ${eventos.length} eventos y ${pronosticos.length} pronósticos para mostrar.`
-      : `Se encontraron ${eventos.length} eventos, pero no hay cuotas decimales válidas en las próximas 72 horas.`,
+      : errores.length > 0
+        ? `The Odds API no devolvió datos: ${errores.join(' | ')}`
+        : `Se encontraron ${eventos.length} eventos, pero no hay cuotas decimales válidas en las próximas 72 horas.`,
     pronosticos,
   };
 }
@@ -165,20 +174,4 @@ const server = http.createServer(async (req, res) => {
     try {
       enviarJson(res, 200, await consultarPronosticos(limite));
     } catch (error) {
-      console.error('Error consultando The Odds API.', error);
-      enviarJson(res, 502, {
-        ok: false,
-        configured: true,
-        events: 0,
-        message: error instanceof Error ? error.message : 'Error consultando The Odds API.',
-        pronosticos: [],
-      });
-    }
-    return;
-  }
-  enviarJson(res, 404, { ok: false, message: 'Ruta no encontrada.' });
-});
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor MegaFutbol escuchando en el puerto ${PORT}.`);
-});
+      console.error('Error consultando The Odds API.', error)
